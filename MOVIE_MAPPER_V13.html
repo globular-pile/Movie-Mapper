@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Movie Mapper</title>
+<style>
+  :root {
+    --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    --color-bg: #f9f8f6;
+    --color-surface: #ffffff;
+    --color-border: #e2e0db;
+    --color-border-light: #eeece8;
+    --color-text: #1a1a18;
+    --color-text-secondary: #6b6b67;
+    --color-text-tertiary: #9b9b96;
+    --radius: 8px;
+    --radius-sm: 5px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: var(--font-sans); font-size: 14px; color: var(--color-text); background: var(--color-bg); padding: 0 16px 40px; }
+  .panel { background: var(--color-surface); border: 0.5px solid var(--color-border); border-radius: var(--radius); padding: 12px; }
+  button { cursor: pointer; background: transparent; border: 0.5px solid var(--color-border); border-radius: var(--radius-sm); padding: 5px 10px; font-size: 13px; color: var(--color-text); white-space: nowrap; font-family: var(--font-sans); }
+  button:hover { background: var(--color-bg); }
+  button:disabled { opacity: 0.35; cursor: default; }
+  button.danger { border-color: #E24B4A; color: #A32D2D; }
+  button.primary { background: var(--color-text); color: #fff; border-color: var(--color-text); }
+  button.primary:hover { opacity: 0.85; }
+  input { border: 0.5px solid var(--color-border); border-radius: var(--radius-sm); padding: 4px 8px; font-size: 13px; background: var(--color-surface); color: var(--color-text); width: 100%; font-family: var(--font-sans); }
+  input:focus, textarea:focus { outline: 2px solid #378ADD; outline-offset: 1px; }
+  label { font-size: 12px; color: var(--color-text-secondary); display: block; margin-bottom: 3px; }
+  textarea { border: 0.5px solid var(--color-border); border-radius: var(--radius-sm); padding: 6px 8px; font-size: 11px; font-family: monospace; background: var(--color-surface); color: var(--color-text); width: 100%; resize: vertical; }
+  .seat { cursor: pointer; }
+  .tooltip { position: fixed; background: var(--color-surface); border: 0.5px solid var(--color-border); border-radius: var(--radius-sm); padding: 6px 10px; font-size: 12px; pointer-events: none; z-index: 100; display: none; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+  .selbox { fill: rgba(55,138,221,0.08); stroke: #378ADD; stroke-width: 1; stroke-dasharray: 4 2; }
+  #canvasWrap { overflow: auto; user-select: none; border: 0.5px solid var(--color-border); border-radius: var(--radius); background: var(--color-surface); }
+  #screenBar { text-align: center; font-size: 11px; color: var(--color-text-secondary); padding: 6px; letter-spacing: 0.08em; border: 0.5px solid var(--color-border); border-radius: var(--radius); background: var(--color-bg); }
+  .hbar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .subhead { font-size: 11px; font-weight: 600; color: var(--color-text-secondary); letter-spacing: 0.04em; margin: 12px 0 6px; padding-top: 10px; border-top: 0.5px solid var(--color-border-light); text-transform: uppercase; }
+  #jsonOut { display: none; margin-top: 12px; }
+  .row-item { display: flex; align-items: center; justify-content: space-between; padding: 3px 6px; border: 0.5px solid var(--color-border-light); border-radius: var(--radius-sm); font-size: 12px; }
+</style>
+</head>
+<body>
+
+<div style="display:grid;grid-template-columns:200px 1fr;gap:12px;padding:16px 0">
+
+  <div style="display:flex;flex-direction:column;gap:10px">
+
+    <div class="panel">
+      <p style="font-weight:600;margin-bottom:10px">Seating</p>
+      <label>Row label</label>
+      <input id="rowLabel" placeholder="A" style="margin-bottom:6px">
+      <label>Seat count</label>
+      <input id="seatCount" type="number" min="1" max="60" value="12" style="margin-bottom:6px">
+      <label>Extra gap before row (px)</label>
+      <input id="extraGap" type="number" value="0" min="0" style="margin-bottom:8px">
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <button style="width:100%" onclick="addRow()">+ Add row</button>
+        <button style="width:100%" onclick="duplicateRow()">⧉ Duplicate</button>
+        <button style="width:100%" onclick="addAisle()">| Add aisle (left)</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <p style="font-weight:600">Overview <span id="rowCount" style="color:var(--color-text-secondary);font-size:12px;font-weight:400"></span></p>
+        <button id="overviewToggle" onclick="toggleOverview()" style="padding:2px 8px;font-size:11px">Hide</button>
+      </div>
+      <div id="rowListWrap">
+        <div id="rowList" style="display:flex;flex-direction:column;gap:4px;max-height:300px;overflow-y:auto"></div>
+      </div>
+      <div style="border-top:0.5px solid var(--color-border-light);margin-top:8px;padding-top:8px;display:flex;justify-content:space-between;font-size:12px;color:var(--color-text-secondary)">
+        <span>Seats: <strong id="totalSeats">0</strong></span>
+        <span>Rows: <strong id="totalRows">0</strong></span>
+      </div>
+    </div>
+
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:8px">
+    <div style="text-align:center;padding-top:8px">
+      <h1 style="font-size:26px;font-weight:600;letter-spacing:-0.5px;margin-bottom:10px">Movie Mapper</h1>
+      <div style="display:inline-flex;gap:16px;align-items:flex-end;flex-wrap:wrap;justify-content:center;margin-bottom:10px">
+        <div><label>Venue name</label><input id="venueName" placeholder="e.g. IFC Center" style="width:180px"></div>
+        <div><label>Auditorium</label><input id="auditoriumName" placeholder="e.g. Screen 1" style="width:140px"></div>
+      </div>
+    </div>
+    <div id="screenBar">SCREEN</div>
+    <div id="canvasWrap"><svg id="canvas" style="display:block"></svg></div>
+    <div style="font-size:11px;color:var(--color-text-tertiary);text-align:center">Shift+click · drag to box-select · drag seats to move</div>
+  </div>
+
+</div>
+
+<div class="panel" style="margin-top:4px">
+  <p style="font-weight:600;margin-bottom:10px">Edit</p>
+  <div class="hbar">
+    <button onclick="doExport()" class="primary">Export JSON</button>
+    <button onclick="selectAll()">Select all</button>
+    <button onclick="clearSelected()">Clear selection</button>
+    <button class="danger" onclick="deleteSelected()">Delete selected</button>
+    <button id="undoBtn" onclick="undo()" disabled>Undo</button>
+    <button id="redoBtn" onclick="redo()" disabled>Redo</button>
+    <button onclick="curveSelected()">Arc selection</button>
+    <button class="danger" onclick="resetAll()">Reset all</button>
+  </div>
+  <div id="jsonOut">
+    <p style="font-size:12px;color:var(--color-text-secondary);margin:10px 0 6px">Click inside, Cmd+A / Ctrl+A, then copy:</p>
+    <textarea id="jsonText" rows="10" readonly onclick="this.select()"></textarea>
+    <button onclick="document.getElementById('jsonOut').style.display='none'" style="margin-top:6px;font-size:12px">Close</button>
+  </div>
+  <p class="subhead">Design</p>
+  <div class="hbar">
+    <button onclick="autofitCanvas()">Autofit</button>
+    <button onclick="smartCenter()">Center</button>
+    <button onclick="smartAlign('left')">Left</button>
+    <button onclick="smartAlign('right')">Right</button>
+    <button onclick="smartDistribCols()">Distribute hor.</button>
+    <button onclick="smartDistribRows()">Distribute vert.</button>
+  </div>
+</div>
+
+<div class="tooltip" id="tooltip"></div>
+
+<script>
+const SEAT_W = 22, SEAT_H = 18, SEAT_GAP = 4, ROW_GAP = 6;
+const ROW_STEP = SEAT_H + SEAT_GAP + ROW_GAP; // 28
+const AISLE_W = SEAT_W * 2 + SEAT_GAP * 3;
+const SEAT_FILL = '#74A4BC';
+const CURVE_ARC = 16;
+const SNAP_THRESH = 8;
+const LABEL_MARGIN = 18;
+const START_X = 30;
+const MIN_W = 500, MIN_H = 350;
+
+let seats = [], rowMeta = [], selected = new Set();
+let nextRowY = 10;
+let dragMode = null, dragStartX = 0, dragStartY = 0, dragSeatSnap = [], movedDrag = false;
+let boxX = 0, boxY = 0, boxW = 0, boxH = 0;
+let canvasW = MIN_W, canvasH = MIN_H;
+let history = [], future = [];
+const MAX_HIST = 40;
+
+const canvas = document.getElementById('canvas');
+const tooltip = document.getElementById('tooltip');
+const undoBtn = document.getElementById('undoBtn');
+const redoBtn = document.getElementById('redoBtn');
+
+function uid() { return Math.random().toString(36).slice(2, 8); }
+
+// ── History ──────────────────────────────────────────────
+function takeSnap() {
+  return { seats: JSON.parse(JSON.stringify(seats)), rowMeta: JSON.parse(JSON.stringify(rowMeta)), nextRowY, canvasW, canvasH };
+}
+function applySnap(s) {
+  seats = s.seats; rowMeta = s.rowMeta; nextRowY = s.nextRowY; canvasW = s.canvasW; canvasH = s.canvasH;
+  selected = new Set([...selected].filter(id => seats.some(s => s.id === id)));
+  applyCanvasSize(); render();
+  document.getElementById('rowLabel').value = nextRowLabel();
+}
+function saveHistory() {
+  history.push(takeSnap());
+  if (history.length > MAX_HIST) history.shift();
+  future = []; undoBtn.disabled = false; redoBtn.disabled = true;
+}
+function undo() { if (!history.length) return; future.push(takeSnap()); applySnap(history.pop()); undoBtn.disabled = history.length === 0; redoBtn.disabled = false; }
+function redo() { if (!future.length) return; history.push(takeSnap()); applySnap(future.pop()); undoBtn.disabled = false; redoBtn.disabled = future.length === 0; }
+
+// ── Canvas sizing ─────────────────────────────────────────
+function applyCanvasSize() {
+  canvas.setAttribute('width', canvasW);
+  canvas.setAttribute('height', canvasH);
+  document.getElementById('screenBar').style.width = canvasW + 'px';
+  document.getElementById('canvasWrap').style.width = canvasW + 'px';
+}
+
+function growToFit() {
+  if (!seats.length) return;
+  const mx = Math.max(...seats.map(s => s.x + SEAT_W)) + LABEL_MARGIN + 14;
+  const my = Math.max(...seats.map(s => s.y + SEAT_H)) + 28;
+  let grew = false;
+  if (mx > canvasW) { canvasW = mx; grew = true; }
+  if (my > canvasH) { canvasH = my; grew = true; }
+  if (grew) applyCanvasSize();
+}
+
+function autofitCanvas() {
+  if (!seats.length) return;
+  canvasW = Math.max(MIN_W, Math.max(...seats.map(s => s.x + SEAT_W)) + LABEL_MARGIN + 14);
+  canvasH = Math.max(MIN_H, Math.max(...seats.map(s => s.y + SEAT_H)) + 28);
+  applyCanvasSize();
+  render();
+}
+
+// ── Row Y — always computed from position in rowMeta array ──
+// nextRowY = 10 + (number of rows * ROW_STEP)
+// This is the ONLY source of truth. No accumulated values.
+function setNextRowY() {
+  nextRowY = 10 + rowMeta.length * ROW_STEP;
+}
+
+function nextRowLabel() {
+  if (!rowMeta.length) return 'A';
+  const last = rowMeta[rowMeta.length - 1].label;
+  if (/^[A-Z]+$/.test(last)) {
+    const c = last.split(''); let i = c.length - 1;
+    while (i >= 0) { if (c[i] < 'Z') { c[i] = String.fromCharCode(c[i].charCodeAt(0) + 1); break; } c[i] = 'A'; i--; }
+    if (i < 0) c.unshift('A'); return c.join('');
+  }
+  return last + "'";
+}
+
+// ── Add / Duplicate / Aisle ───────────────────────────────
+function detectStdGap() {
+  const gaps = [];
+  const rg = {}; seats.forEach(s => { if (!rg[s.row]) rg[s.row] = []; rg[s.row].push(s); });
+  Object.values(rg).forEach(rs => {
+    rs.sort((a, b) => a.x - b.x);
+    for (let i = 1; i < rs.length; i++) { const g = rs[i].x - rs[i-1].x; if (g > 0 && g < 200) gaps.push(Math.round(g)); }
+  });
+  if (!gaps.length) return SEAT_W + SEAT_GAP;
+  const freq = {}; gaps.forEach(g => { freq[g] = (freq[g] || 0) + 1; });
+  return parseInt(Object.entries(freq).sort((a, b) => b[1] - a[1])[0][0]);
+}
+
+function addRow() {
+  saveHistory();
+  const label = document.getElementById('rowLabel').value.trim() || nextRowLabel();
+  const count = parseInt(document.getElementById('seatCount').value) || 12;
+  const extra = parseInt(document.getElementById('extraGap').value) || 0;
+  const y = nextRowY + extra;
+  const gap = seats.length ? detectStdGap() : SEAT_W + SEAT_GAP;
+  for (let i = 0; i < count; i++) {
+    seats.push({ id: uid(), row: label, number: i + 1, x: START_X + i * gap, y, status: 'available', aisles: [] });
+  }
+  rowMeta.push({ label, y, count, extra, aisles: [] });
+  setNextRowY();
+  document.getElementById('extraGap').value = 0;
+  document.getElementById('rowLabel').value = nextRowLabel();
+  growToFit(); render();
+}
+
+function duplicateRow() {
+  saveHistory();
+  const selRows = [...new Set(seats.filter(s => selected.has(s.id)).map(s => s.row))];
+  const src = selRows.length === 1 ? selRows[0] : (rowMeta.length ? rowMeta[rowMeta.length - 1].label : null);
+  if (!src) return;
+  const ss = seats.filter(s => s.row === src); if (!ss.length) return;
+  const newLabel = document.getElementById('rowLabel').value.trim() || nextRowLabel();
+  const extra = parseInt(document.getElementById('extraGap').value) || 0;
+  const y = nextRowY + extra;
+  ss.forEach(s => seats.push({ ...JSON.parse(JSON.stringify(s)), id: uid(), row: newLabel, y }));
+  rowMeta.push({ label: newLabel, y, count: ss.length, extra, aisles: [...(rowMeta.find(r => r.label === src) || { aisles: [] }).aisles] });
+  setNextRowY();
+  document.getElementById('extraGap').value = 0;
+  document.getElementById('rowLabel').value = nextRowLabel();
+  growToFit(); render();
+}
+
+function addAisle() {
+  if (!selected.size) return;
+  saveHistory();
+  [...new Set(seats.filter(s => selected.has(s.id)).map(s => s.row))].forEach(rl => {
+    const rs = seats.filter(s => s.row === rl).sort((a, b) => a.x - b.x);
+    const si = rs.filter(s => selected.has(s.id)); if (!si.length) return;
+    const rm = rowMeta.find(r => r.label === rl); if (!rm) return;
+    const bx = Math.min(...si.map(s => s.x));
+    const key = Math.round(bx);
+    if (!rm.aisles) rm.aisles = [];
+    if (rm.aisles.includes(key)) return;
+    rm.aisles.push(key);
+    rs.forEach(s => { if (s.x >= bx) s.x += AISLE_W; });
+  });
+  growToFit(); render();
+}
+
+// ── Delete row — THE FIX ──────────────────────────────────
+// Steps: remove from seats + rowMeta, then reassign Y from scratch (y=10, step ROW_STEP),
+// then call setNextRowY() which is simply 10 + remaining count * ROW_STEP.
+function deleteRow(label) {
+  saveHistory();
+  seats = seats.filter(s => s.row !== label);
+  selected = new Set([...selected].filter(id => seats.some(s => s.id === id)));
+  rowMeta = rowMeta.filter(r => r.label !== label);
+
+  // Reassign Y for all surviving rows from scratch — no accumulated offsets
+  let y = 10;
+  rowMeta.forEach(rm => {
+    rm.y = y;
+    seats.filter(s => s.row === rm.label).forEach(s => s.y = y);
+    y += ROW_STEP;
+  });
+
+  // nextRowY is exactly where the next new row goes
+  nextRowY = y;
+
+  document.getElementById('rowLabel').value = nextRowLabel();
+  render();
+}
+
+function toggleOverview() {
+  const w = document.getElementById('rowListWrap'), b = document.getElementById('overviewToggle');
+  if (w.style.display === 'none') { w.style.display = ''; b.textContent = 'Hide'; }
+  else { w.style.display = 'none'; b.textContent = 'Show'; }
+}
+
+// ── Geometry ──────────────────────────────────────────────
+function rowMinY(r) { const rs = seats.filter(s => s.row === r); return rs.length ? Math.min(...rs.map(s => s.y)) : 0; }
+function rowMaxY(r) { const rs = seats.filter(s => s.row === r); return rs.length ? Math.max(...rs.map(s => s.y)) : 0; }
+
+// ── Arc ───────────────────────────────────────────────────
+function curveSelected() {
+  if (!selected.size) return;
+  saveHistory();
+  [...new Set(seats.filter(s => selected.has(s.id)).map(s => s.row))].forEach(rl => {
+    const rs = seats.filter(s => s.row === rl).sort((a, b) => a.x - b.x);
+    const n = rs.length; if (n < 2) return;
+    const minX = rs[0].x, span = rs[n-1].x - minX || 1;
+    const baseY = Math.min(...rs.map(s => s.y));
+    rs.forEach(s => { const t = (s.x - minX) / span * 2 - 1; s.y = Math.round(baseY + CURVE_ARC * (1 - t * t)); });
+    const arcBottom = Math.max(...rs.map(s => s.y)) + SEAT_H;
+    const idx = rowMeta.findIndex(r => r.label === rl);
+    for (let i = idx + 1; i < rowMeta.length; i++) {
+      const top = rowMinY(rowMeta[i].label);
+      if (top < arcBottom + ROW_GAP) {
+        const shift = arcBottom + ROW_GAP - top;
+        for (let j = i; j < rowMeta.length; j++) { seats.filter(s => s.row === rowMeta[j].label).forEach(s => s.y += shift); rowMeta[j].y += shift; }
+        break;
+      }
+    }
+  });
+  if (rowMeta.length) { const last = rowMeta[rowMeta.length-1]; nextRowY = rowMaxY(last.label) + SEAT_H + ROW_GAP + SEAT_GAP; }
+  growToFit(); render();
+}
+
+// ── Snap & collision ─────────────────────────────────────
+function computeSnap(proposed) {
+  const unsel = seats.filter(s => !selected.has(s.id));
+  if (!unsel.length) return { dx: 0, dy: 0 };
+  const sg = detectStdGap(), sp = sg - SEAT_W;
+  let bx = null, by = null;
+  proposed.forEach(ps => {
+    unsel.forEach(u => {
+      const dy = u.y - ps.y; if (Math.abs(dy) < SNAP_THRESH && (by === null || Math.abs(dy) < Math.abs(by))) by = dy;
+      const dx = u.x - ps.x; if (Math.abs(dx) < SNAP_THRESH && (bx === null || Math.abs(dx) < Math.abs(bx))) bx = dx;
+      const dL = (u.x - SEAT_W - sp) - ps.x; if (Math.abs(dL) < SNAP_THRESH && (bx === null || Math.abs(dL) < Math.abs(bx))) bx = dL;
+      const dR = (u.x + SEAT_W + sp) - ps.x; if (Math.abs(dR) < SNAP_THRESH && (bx === null || Math.abs(dR) < Math.abs(bx))) bx = dR;
+    });
+  });
+  return { dx: bx || 0, dy: by || 0 };
+}
+
+function collisionClamp(snaps, dx, dy) {
+  const unsel = seats.filter(s => !selected.has(s.id));
+  let fx = dx, fy = dy;
+  snaps.forEach(sn => {
+    const nx = sn.ox + dx, ny = sn.oy + dy;
+    unsel.forEach(u => {
+      const oy = ny < u.y + SEAT_H && ny + SEAT_H > u.y;
+      const ox = nx < u.x + SEAT_W && nx + SEAT_W > u.x;
+      if (oy) {
+        if (fx > 0 && nx + SEAT_W > u.x && sn.ox + SEAT_W <= u.x) fx = Math.min(fx, u.x - sn.ox - SEAT_W);
+        if (fx < 0 && nx < u.x + SEAT_W && sn.ox >= u.x + SEAT_W) fx = Math.max(fx, u.x + SEAT_W - sn.ox);
+      }
+      if (ox) {
+        if (fy > 0 && ny + SEAT_H > u.y && sn.oy + SEAT_H <= u.y) fy = Math.min(fy, u.y - sn.oy - SEAT_H);
+        if (fy < 0 && ny < u.y + SEAT_H && sn.oy >= u.y + SEAT_H) fy = Math.max(fy, u.y + SEAT_H - sn.oy);
+      }
+    });
+  });
+  return { dx: fx, dy: fy };
+}
+
+function isRowFull(r) { return seats.filter(s => s.row === r).every(s => selected.has(s.id)); }
+function selectAll() { seats.forEach(s => selected.add(s.id)); render(); }
+function clearSelected() { selected.clear(); render(); }
+function deleteSelected() { if (!selected.size) return; saveHistory(); seats = seats.filter(s => !selected.has(s.id)); selected.clear(); render(); }
+
+function resetAll() {
+  if (!confirm('Reset everything?')) return;
+  saveHistory(); seats = []; rowMeta = []; selected.clear(); nextRowY = 10; canvasW = MIN_W; canvasH = MIN_H;
+  document.getElementById('rowLabel').value = 'A';
+  applyCanvasSize(); render();
+}
+
+// ── Layout ────────────────────────────────────────────────
+function smartCenter() {
+  saveHistory();
+  const pool = selected.size ? seats.filter(s => selected.has(s.id)) : seats;
+  const rg = {}; pool.forEach(s => { if (!rg[s.row]) rg[s.row] = []; rg[s.row].push(s); });
+  Object.values(rg).forEach(rs => {
+    rs.sort((a, b) => a.x - b.x);
+    const span = rs[rs.length-1].x + SEAT_W - rs[0].x;
+    const shift = Math.round((canvasW - span) / 2) - rs[0].x;
+    rs.forEach(s => s.x += shift);
+  });
+  render();
+}
+
+function smartAlign(dir) {
+  saveHistory();
+  const pool = selected.size ? seats.filter(s => selected.has(s.id)) : seats;
+  const rg = {}; pool.forEach(s => { if (!rg[s.row]) rg[s.row] = []; rg[s.row].push(s); });
+  Object.values(rg).forEach(rs => {
+    rs.sort((a, b) => a.x - b.x);
+    if (dir === 'left') { const sh = START_X - rs[0].x; rs.forEach(s => s.x += sh); }
+    else { const sh = canvasW - LABEL_MARGIN - 14 - rs[rs.length-1].x - SEAT_W; rs.forEach(s => s.x += sh); }
+  });
+  growToFit(); render();
+}
+
+function smartDistribCols() {
+  saveHistory();
+  const pool = selected.size ? seats.filter(s => selected.has(s.id)) : seats;
+  const rg = {}; pool.forEach(s => { if (!rg[s.row]) rg[s.row] = []; rg[s.row].push(s); });
+  let changed = false;
+  Object.values(rg).forEach(rs => {
+    if (rs.length < 3) return;
+    rs.sort((a, b) => a.x - b.x);
+    const gaps = []; for (let i = 1; i < rs.length; i++) gaps.push(rs[i].x - rs[i-1].x);
+    if (Math.max(...gaps) - Math.min(...gaps) < 1.5) return;
+    const step = (rs[rs.length-1].x - rs[0].x) / (rs.length - 1);
+    rs.forEach((s, i) => { s.x = Math.round(rs[0].x + i * step); }); changed = true;
+  });
+  if (changed) render();
+}
+
+function smartDistribRows() {
+  saveHistory();
+  const pool = selected.size ? seats.filter(s => selected.has(s.id)) : seats;
+  const rowSet = [...new Set(pool.map(s => s.row))]; if (rowSet.length < 3) return;
+  const ry = {}; rowSet.forEach(r => { ry[r] = rowMinY(r); });
+  rowSet.sort((a, b) => ry[a] - ry[b]);
+  const gaps = []; for (let i = 1; i < rowSet.length; i++) gaps.push(ry[rowSet[i]] - ry[rowSet[i-1]]);
+  if (Math.max(...gaps) - Math.min(...gaps) < 1.5) return;
+  const span = ry[rowSet[rowSet.length-1]] - ry[rowSet[0]];
+  const step = span / (rowSet.length - 1);
+  rowSet.forEach((r, i) => {
+    const ny = Math.round(ry[rowSet[0]] + i * step);
+    const sh = ny - rowMinY(r);
+    seats.filter(s => s.row === r).forEach(s => s.y += sh);
+    const rm = rowMeta.find(m => m.label === r); if (rm) rm.y = ny;
+  });
+  render();
+}
+
+// ── Export — textarea only (works everywhere) ─────────────
+function doExport() {
+  const venue = document.getElementById('venueName').value || 'Unnamed venue';
+  const aud = document.getElementById('auditoriumName').value || 'Unnamed auditorium';
+  const data = { venue, auditorium: aud, generated: new Date().toISOString(), canvas: { width: canvasW, height: canvasH }, meta: { seat_w: SEAT_W, seat_h: SEAT_H, seat_gap: SEAT_GAP, row_step: ROW_STEP }, seats };
+  document.getElementById('jsonText').value = JSON.stringify(data, null, 2);
+  document.getElementById('jsonOut').style.display = 'block';
+  document.getElementById('jsonText').select();
+}
+
+// ── Render ────────────────────────────────────────────────
+function render() {
+  growToFit();
+  canvas.innerHTML = '';
+  const gx = seats.length ? Math.min(...seats.map(s => s.x)) : START_X;
+  const gxr = seats.length ? Math.max(...seats.map(s => s.x + SEAT_W)) : START_X + 100;
+
+  seats.forEach(s => {
+    const isSel = selected.has(s.id);
+    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    g.setAttribute('class', 'seat'); g.dataset.id = s.id;
+    const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    rect.setAttribute('x', s.x); rect.setAttribute('y', s.y);
+    rect.setAttribute('width', SEAT_W); rect.setAttribute('height', SEAT_H); rect.setAttribute('rx', '4');
+    rect.setAttribute('fill', isSel ? '#4a7fa0' : SEAT_FILL);
+    rect.setAttribute('stroke', isSel ? '#1a4f6e' : 'rgba(0,0,0,0.12)');
+    rect.setAttribute('stroke-width', isSel ? '2' : '0.5');
+    const txt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    txt.setAttribute('x', s.x + SEAT_W / 2); txt.setAttribute('y', s.y + SEAT_H - 4);
+    txt.setAttribute('text-anchor', 'middle'); txt.setAttribute('font-size', '9');
+    txt.setAttribute('font-weight', 'bold'); txt.setAttribute('fill', '#ffffff');
+    txt.textContent = s.number;
+    g.appendChild(rect); g.appendChild(txt); canvas.appendChild(g);
+  });
+
+  const drawn = new Set();
+  seats.forEach(s => {
+    if (drawn.has(s.row)) return; drawn.add(s.row);
+    const rs = seats.filter(r => r.row === s.row);
+    const y = Math.max(...rs.map(r => r.y)) + SEAT_H - 4;
+    const lL = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    lL.setAttribute('x', gx - LABEL_MARGIN); lL.setAttribute('y', y);
+    lL.setAttribute('font-size', '11'); lL.setAttribute('fill', '#9b9b96');
+    lL.setAttribute('pointer-events', 'none'); lL.setAttribute('text-anchor', 'middle');
+    lL.textContent = s.row; canvas.appendChild(lL);
+    const lR = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    lR.setAttribute('x', gxr + LABEL_MARGIN); lR.setAttribute('y', y);
+    lR.setAttribute('font-size', '11'); lR.setAttribute('fill', '#9b9b96');
+    lR.setAttribute('pointer-events', 'none'); lR.setAttribute('text-anchor', 'middle');
+    lR.textContent = s.row; canvas.appendChild(lR);
+  });
+
+  if (dragMode === 'box') {
+    const box = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    box.setAttribute('class', 'selbox');
+    box.setAttribute('x', Math.min(boxX, boxX + boxW)); box.setAttribute('y', Math.min(boxY, boxY + boxH));
+    box.setAttribute('width', Math.abs(boxW)); box.setAttribute('height', Math.abs(boxH));
+    canvas.appendChild(box);
+  }
+
+  updateOverview();
+}
+
+// ── Mouse ─────────────────────────────────────────────────
+function svgPt(e) { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
+function seatAt(x, y) { return seats.find(s => x >= s.x && x <= s.x + SEAT_W && y >= s.y && y <= s.y + SEAT_H); }
+
+canvas.addEventListener('mousedown', e => {
+  const p = svgPt(e); const s = seatAt(p.x, p.y); movedDrag = false;
+  if (s) {
+    if (!selected.has(s.id)) { if (!e.shiftKey) selected.clear(); selected.add(s.id); render(); }
+    dragMode = 'seats'; dragStartX = p.x; dragStartY = p.y;
+    dragSeatSnap = seats.filter(s => selected.has(s.id)).map(s => ({ id: s.id, ox: s.x, oy: s.y, row: s.row }));
+  } else {
+    if (!e.shiftKey) selected.clear();
+    dragMode = 'box'; boxX = p.x; boxY = p.y; boxW = 0; boxH = 0; dragStartX = p.x; dragStartY = p.y;
+  }
+  e.preventDefault();
+});
+
+document.addEventListener('mousemove', e => {
+  if (!dragMode) return;
+  const p = svgPt(e);
+  const rdx = p.x - dragStartX, rdy = p.y - dragStartY;
+  if (Math.abs(rdx) > 1 || Math.abs(rdy) > 1) movedDrag = true;
+  if (dragMode === 'seats' && movedDrag) {
+    let dx = rdx, dy = rdy;
+    const rows = [...new Set(dragSeatSnap.map(sn => sn.row))];
+    if (rows.some(r => !isRowFull(r))) dy = 0;
+    const prop = dragSeatSnap.map(sn => ({ id: sn.id, row: sn.row, x: sn.ox + dx, y: sn.oy + dy }));
+    const { dx: sdx, dy: sdy } = computeSnap(prop);
+    let fdx = dx + sdx, fdy = dy === 0 ? 0 : dy + sdy;
+    const { dx: cdx, dy: cdy } = collisionClamp(dragSeatSnap, fdx, fdy);
+    fdx = cdx; fdy = cdy;
+    dragSeatSnap.forEach(sn => { const s = seats.find(s => s.id === sn.id); if (!s) return; s.x = Math.max(2, sn.ox + fdx); s.y = Math.max(0, sn.oy + fdy); });
+    tooltip.style.display = 'none'; render();
+  } else if (dragMode === 'box') {
+    boxW = rdx; boxH = rdy;
+    const bx1 = Math.min(boxX, boxX + boxW), bx2 = Math.max(boxX, boxX + boxW);
+    const by1 = Math.min(boxY, boxY + boxH), by2 = Math.max(boxY, boxY + boxH);
+    seats.forEach(s => { const cx = s.x + SEAT_W / 2, cy = s.y + SEAT_H / 2; if (cx >= bx1 && cx <= bx2 && cy >= by1 && cy <= by2) selected.add(s.id); });
+    render();
+  }
+});
+
+document.addEventListener('mouseup', () => {
+  if (dragMode === 'seats' && movedDrag) saveHistory();
+  dragMode = null; render();
+});
+
+canvas.addEventListener('mousemove', e => {
+  if (dragMode) return;
+  const p = svgPt(e); const s = seatAt(p.x, p.y);
+  if (s) { tooltip.style.display = 'block'; tooltip.style.left = (e.clientX + 12) + 'px'; tooltip.style.top = (e.clientY - 10) + 'px'; tooltip.innerHTML = `<strong>${s.row}${s.number}</strong>`; }
+  else tooltip.style.display = 'none';
+});
+canvas.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; render(); });
+
+// ── Overview — DOM nodes only, direct listeners, no innerHTML ──
+function updateOverview() {
+  const active = rowMeta.filter(rm => seats.some(s => s.row === rm.label));
+  document.getElementById('rowCount').textContent = active.length + ' rows';
+  document.getElementById('totalSeats').textContent = seats.length;
+  document.getElementById('totalRows').textContent = active.length;
+  const list = document.getElementById('rowList');
+  list.innerHTML = '';
+  active.forEach(rm => {
+    const n = seats.filter(s => s.row === rm.label).length;
+    const div = document.createElement('div');
+    div.className = 'row-item';
+    const lbl = document.createElement('span');
+    lbl.style.cssText = 'font-weight:600;min-width:54px';
+    lbl.textContent = 'Row ' + rm.label;
+    const cnt = document.createElement('span');
+    cnt.style.cssText = 'color:var(--color-text-secondary);flex:1;padding:0 8px';
+    cnt.textContent = n + ' seats';
+    const btn = document.createElement('button');
+    btn.textContent = 'Delete';
+    btn.style.cssText = 'padding:2px 8px;font-size:11px;border:0.5px solid #E24B4A;color:#A32D2D;border-radius:4px;background:transparent;cursor:pointer';
+    btn.addEventListener('click', function() { deleteRow(rm.label); });
+    div.appendChild(lbl); div.appendChild(cnt); div.appendChild(btn);
+    list.appendChild(div);
+  });
+}
+
+// ── Init ──────────────────────────────────────────────────
+applyCanvasSize();
+render();
+</script>
+</body>
+</html>
